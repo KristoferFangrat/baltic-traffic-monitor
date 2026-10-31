@@ -6,11 +6,17 @@ Run locally:  streamlit run dashboard/app.py
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 import pandas as pd
 import psycopg
 import pydeck as pdk
 import streamlit as st
+
+# Make `btm` importable when running `streamlit run dashboard/app.py` without PYTHONPATH
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from btm.formatting import aircraft_label, flag, vessel_label  # noqa: E402
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://btm:btm@localhost:5433/btm")
 REFRESH_SECONDS = 30
@@ -96,7 +102,7 @@ st.title("Lägesbild – Östersjön")
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Fartyg (senaste timmen)", len(vessels))
 k2.metric("Flygplan (senaste 10 min)", len(aircraft))
-k3.metric("Militära flygplan", int(aircraft["is_military"].fillna(False).sum()) if not aircraft.empty else 0)
+k3.metric("Militära flygplan", int(aircraft["is_military"].map(flag).sum()) if not aircraft.empty else 0)
 k4.metric("AIS-avbrott (24 h)", len(gaps))
 k5.metric("Nödkoder (24 h)", len(squawks))
 
@@ -112,17 +118,11 @@ with tab_map:
     if show_vessels and not vessels.empty:
         v = vessels.copy()
         v["color"] = v["category"].map(lambda c: CATEGORY_COLORS.get(c, DEFAULT_COLOR))
-        v["label"] = v.apply(
-            lambda r: (
-                f"🚢 {r['name'] or r['mmsi']}<br/>{r['category']} · {r['sog_knots'] or 0:.1f} kn"
-                f"<br/>Destination: {r['destination'] or '–'}"
-            ),
-            axis=1,
-        )
+        v["label"] = v.apply(vessel_label, axis=1)
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
-                v,
+                v[["lon", "lat", "color", "label"]],  # only what the map needs – no NaNs in the JSON
                 get_position="[lon, lat]",
                 get_fill_color="color",
                 get_radius=1800,
@@ -134,18 +134,12 @@ with tab_map:
         )
     if show_aircraft and not aircraft.empty:
         a = aircraft.copy()
-        a["color"] = a["is_military"].map(lambda m: MILITARY_AIRCRAFT_COLOR if m else AIRCRAFT_COLOR)
-        a["label"] = a.apply(
-            lambda r: (
-                f"✈️ {r['callsign'] or r['icao_hex']}<br/>{r['type_code'] or ''} {r['registration'] or ''}"
-                f"<br/>{int(r['altitude_ft'] or 0):,} ft · {int(r['ground_speed_kt'] or 0)} kt"
-            ),
-            axis=1,
-        )
+        a["color"] = a["is_military"].map(lambda m: MILITARY_AIRCRAFT_COLOR if flag(m) else AIRCRAFT_COLOR)
+        a["label"] = a.apply(aircraft_label, axis=1)
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
-                a,
+                a[["lon", "lat", "color", "label"]],
                 get_position="[lon, lat]",
                 get_fill_color="color",
                 get_line_color=[0, 0, 0],
@@ -161,7 +155,7 @@ with tab_map:
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
-                squawks,
+                squawks[["lon", "lat"]],
                 get_position="[lon, lat]",
                 get_fill_color=[255, 0, 0, 60],
                 get_line_color=[255, 0, 0],
