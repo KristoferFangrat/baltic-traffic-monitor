@@ -16,7 +16,7 @@ import streamlit as st
 
 # Make `btm` importable when running `streamlit run dashboard/app.py` without PYTHONPATH
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from btm.formatting import aircraft_label, flag, vessel_label  # noqa: E402
+from btm.formatting import TOOLTIP_FIELDS, aircraft_tooltip, flag, vessel_tooltip  # noqa: E402
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://btm:btm@localhost:5433/btm")
 REFRESH_SECONDS = 30
@@ -118,11 +118,11 @@ with tab_map:
     if show_vessels and not vessels.empty:
         v = vessels.copy()
         v["color"] = v["category"].map(lambda c: CATEGORY_COLORS.get(c, DEFAULT_COLOR))
-        v["label"] = v.apply(vessel_label, axis=1)
+        v[list(TOOLTIP_FIELDS)] = v.apply(vessel_tooltip, axis=1, result_type="expand")
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
-                v[["lon", "lat", "color", "label"]],  # only what the map needs – no NaNs in the JSON
+                v[["lon", "lat", "color", *TOOLTIP_FIELDS]],  # only what the map needs – no NaNs in the JSON
                 get_position="[lon, lat]",
                 get_fill_color="color",
                 get_radius=1800,
@@ -135,11 +135,11 @@ with tab_map:
     if show_aircraft and not aircraft.empty:
         a = aircraft.copy()
         a["color"] = a["is_military"].map(lambda m: MILITARY_AIRCRAFT_COLOR if flag(m) else AIRCRAFT_COLOR)
-        a["label"] = a.apply(aircraft_label, axis=1)
+        a[list(TOOLTIP_FIELDS)] = a.apply(aircraft_tooltip, axis=1, result_type="expand")
         layers.append(
             pdk.Layer(
                 "ScatterplotLayer",
-                a[["lon", "lat", "color", "label"]],
+                a[["lon", "lat", "color", *TOOLTIP_FIELDS]],
                 get_position="[lon, lat]",
                 get_fill_color="color",
                 get_line_color=[0, 0, 0],
@@ -170,7 +170,11 @@ with tab_map:
             layers=layers,
             initial_view_state=pdk.ViewState(latitude=58.6, longitude=19.5, zoom=5),
             map_style="light",
-            tooltip={"html": "{label}"},
+            # Line breaks live in the template; the values are inserted as escaped text
+            tooltip={
+                "html": "<b>{tt_title}</b><br/>{tt_line2}<br/>{tt_line3}",
+                "style": {"fontSize": "13px", "lineHeight": "1.4"},
+            },
         ),
         height=620,
     )

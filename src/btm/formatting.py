@@ -43,16 +43,27 @@ def flag(value: Any) -> bool:
     return False if is_missing(value) else bool(value)
 
 
-def vessel_label(r: Mapping[str, Any]) -> str:
+# Tooltip lines are returned as plain text (no HTML). The dashboard puts the
+# line breaks in the tooltip *template*, because deck.gl escapes the values it
+# inserts – an embedded "<br/>" would be shown literally.
+TOOLTIP_FIELDS = ("tt_title", "tt_line2", "tt_line3")
+
+
+def vessel_tooltip(r: Mapping[str, Any]) -> tuple[str, str, str]:
     name = text(r.get("name"), default=text(r.get("mmsi"), "okänt fartyg"))
     return (
-        f"🚢 {name}<br/>{text(r.get('category'), 'Okänd')} · {number(r.get('sog_knots'), '.1f', ' kn')}"
-        f"<br/>Destination: {text(r.get('destination'), '–')}"
+        f"🚢 {name}",
+        f"{text(r.get('category'), 'Okänd')} · {number(r.get('sog_knots'), '.1f', ' kn')}",
+        f"Destination: {text(r.get('destination'), '–')}",
     )
 
 
-def aircraft_label(r: Mapping[str, Any]) -> str:
+def aircraft_tooltip(r: Mapping[str, Any]) -> tuple[str, str, str]:
     ident = text(r.get("callsign"), default=text(r.get("icao_hex"), "okänt"))
     details = " ".join(p for p in (text(r.get("type_code")), text(r.get("registration"))) if p)
     altitude = "på marken" if flag(r.get("on_ground")) else number(r.get("altitude_ft"), ",.0f", " ft")
-    return f"✈️ {ident}<br/>{details}<br/>{altitude} · {number(r.get('ground_speed_kt'), '.0f', ' kt')}"
+    return (
+        f"✈️ {ident}",
+        details or "–",
+        f"{altitude} · {number(r.get('ground_speed_kt'), '.0f', ' kt')}",
+    )

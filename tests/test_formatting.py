@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from btm.formatting import aircraft_label, flag, is_missing, number, text, vessel_label
+from btm.formatting import aircraft_tooltip, flag, is_missing, number, text, vessel_tooltip
 
 
 @pytest.mark.parametrize("value", [None, float("nan"), math.nan, pd.NA, pd.NaT])
@@ -25,7 +25,7 @@ def test_helpers_fall_back_to_defaults():
     assert flag(float("nan")) is False and flag(True) is True
 
 
-def test_aircraft_label_with_missing_speed_and_altitude():
+def test_aircraft_tooltip_with_missing_speed_and_altitude():
     # The exact row shape that crashed the dashboard: NaN ground speed from the DB
     row = pd.Series(
         {
@@ -38,32 +38,49 @@ def test_aircraft_label_with_missing_speed_and_altitude():
             "ground_speed_kt": float("nan"),
         }
     )
-    label = aircraft_label(row)
-    assert "4ac9e1" in label and "SE-RJX" in label
-    assert "nan" not in label.lower()
+    title, details, motion = aircraft_tooltip(row)
+    assert title == "✈️ 4ac9e1"
+    assert details == "SE-RJX"
+    assert motion == "– · –"
 
 
-def test_aircraft_label_on_ground():
+def test_aircraft_tooltip_lines():
+    row = {
+        "callsign": "CKK216",
+        "type_code": "B77L",
+        "registration": "B-228S",
+        "altitude_ft": 31000,
+        "ground_speed_kt": 415.0,
+    }
+    assert aircraft_tooltip(row) == ("✈️ CKK216", "B77L B-228S", "31,000 ft · 415 kt")
+
+
+def test_aircraft_tooltip_on_ground():
     row = {"callsign": "SAS1", "on_ground": True, "altitude_ft": 0, "ground_speed_kt": 12.0}
-    assert "på marken" in aircraft_label(row) and "12 kt" in aircraft_label(row)
+    assert aircraft_tooltip(row)[2] == "på marken · 12 kt"
 
 
-def test_vessel_label_with_missing_values():
+def test_vessel_tooltip_with_missing_values():
     row = pd.Series(
         {"name": None, "mmsi": 265547250, "category": None, "sog_knots": float("nan"), "destination": pd.NA}
     )
-    label = vessel_label(row)
-    assert "265547250" in label and "Okänd" in label
-    assert "nan" not in label.lower()
+    assert vessel_tooltip(row) == ("🚢 265547250", "Okänd · –", "Destination: –")
 
 
-def test_labels_work_with_dataframe_apply():
+@pytest.mark.parametrize("func", [aircraft_tooltip, vessel_tooltip])
+def test_tooltips_contain_no_html(func):
+    # deck.gl escapes inserted values, so any markup would be shown literally
+    lines = func({"name": "X", "callsign": "Y", "altitude_ft": 1000})
+    assert not any("<" in line or ">" in line for line in lines)
+
+
+def test_tooltips_expand_into_dataframe_columns():
     df = pd.DataFrame(
         [
             {"callsign": "SAS1", "icao_hex": "a", "altitude_ft": 36000, "ground_speed_kt": 450.0},
             {"callsign": None, "icao_hex": "b", "altitude_ft": None, "ground_speed_kt": None},
         ]
     )
-    labels = df.apply(aircraft_label, axis=1)
-    assert labels.iloc[0].endswith("36,000 ft · 450 kt")
-    assert "– ft" not in labels.iloc[1] and labels.iloc[1].endswith("– · –")
+    df[["t1", "t2", "t3"]] = df.apply(aircraft_tooltip, axis=1, result_type="expand")
+    assert df["t3"].tolist() == ["36,000 ft · 450 kt", "– · –"]
+    assert df["t1"].tolist() == ["✈️ SAS1", "✈️ b"]
