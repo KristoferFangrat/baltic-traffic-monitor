@@ -1,0 +1,5 @@
+requests>=2.32
+psycopg[binary]>=3.2
+pandas>=2.2
+streamlit>=1.40
+pydeck>=0.9

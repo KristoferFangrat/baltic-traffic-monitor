@@ -1,0 +1,18 @@
+[project]
+name = "baltic-traffic-monitor"
+version = "0.1.0"
+description = "AIS + ADS-B situational awareness pipeline for the Baltic Sea region"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = ["integration: needs a PostgreSQL database (TEST_DATABASE_URL)"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

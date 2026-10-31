@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "dataUpdatedTime": "2026-10-31T12:00:05Z",
+  "features": [
+    {
+      "mmsi": 265547250,
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [18.3412, 59.3721] },
+      "properties": {
+        "mmsi": 265547250, "sog": 12.4, "cog": 87.3, "navStat": 0, "rot": 0,
+        "posAcc": true, "raim": false, "heading": 88,
+        "timestamp": 59, "timestampExternal": 1793448000000
+      }
+    },
+    {
+      "mmsi": 230145000,
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [24.9561, 60.1602] },
+      "properties": {
+        "mmsi": 230145000, "sog": 102.3, "cog": 360.0, "navStat": 5, "rot": -128,
+        "posAcc": false, "raim": false, "heading": 511,
+        "timestamp": 12, "timestampExternal": 1793448010000
+      }
+    },
+    {
+      "mmsi": 276000001,
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [] },
+      "properties": { "mmsi": 276000001, "timestampExternal": 1793448010000 }
+    }
+  ]
+}

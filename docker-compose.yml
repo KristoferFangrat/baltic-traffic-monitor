@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-btm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-btm}
+      POSTGRES_DB: ${POSTGRES_DB:-btm}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  collector:
+    build: .
+    command: ["python", "-m", "btm.collector", "run"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-btm}:${POSTGRES_PASSWORD:-btm}@db:5432/${POSTGRES_DB:-btm}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-btm}:${POSTGRES_PASSWORD:-btm}@db:5432/${POSTGRES_DB:-btm}
+    ports:
+      - "8501:8501"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # One-off: load synthetic demo data  ->  docker compose run --rm seed
+  seed:
+    build: .
+    command: ["python", "-m", "btm.collector", "seed"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-btm}:${POSTGRES_PASSWORD:-btm}@db:5432/${POSTGRES_DB:-btm}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["demo"]
+
+volumes:
+  pgdata:

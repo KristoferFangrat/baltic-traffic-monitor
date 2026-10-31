@@ -1,0 +1,29 @@
+{
+  "now": 1793448000000,
+  "total": 4,
+  "ctime": 1793448000000,
+  "ptime": 3,
+  "msg": "No error",
+  "ac": [
+    {
+      "hex": "4AC9E1", "type": "adsb_icao", "flight": "SAS1421 ", "r": "SE-RJX", "t": "A20N",
+      "alt_baro": 36000, "gs": 452.3, "track": 241.7, "baro_rate": -64, "squawk": "2252",
+      "lat": 59.9123, "lon": 18.4411, "seen_pos": 1.4, "seen": 0.2, "messages": 1000,
+      "mlat": [], "tisb": [], "rssi": -20.1
+    },
+    {
+      "hex": "4ab123", "type": "adsb_icao", "flight": "DEMO01", "r": "SE-DEM", "t": "C130",
+      "dbFlags": 1, "alt_baro": "ground", "gs": 0, "squawk": "7700",
+      "lat": 59.65, "lon": 17.92, "seen_pos": 0, "seen": 0, "messages": 10,
+      "mlat": [], "tisb": [], "rssi": -10
+    },
+    {
+      "hex": "4ad000", "type": "mode_s", "alt_baro": 12000,
+      "seen": 5, "messages": 3, "mlat": [], "tisb": [], "rssi": -30
+    },
+    {
+      "hex": "4ae000", "type": "adsb_icao", "lat": 58.1, "lon": 16.2,
+      "seen_pos": 2, "seen": 1, "messages": 3, "mlat": [], "tisb": [], "rssi": -30
+    }
+  ]
+}

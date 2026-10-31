@@ -1,0 +1,11 @@
+[
+  {
+    "mmsi": 265547250, "name": "DEMO TRADER@@@", "shipType": 70, "callSign": "SDEM ",
+    "imo": 9123456, "draught": 72, "destination": "FIHEL", "timestamp": 1793447000000
+  },
+  {
+    "mmsi": 230145000, "name": "", "shipType": 60, "callSign": "OJDM",
+    "imo": 0, "draught": 0, "destination": null, "timestamp": 1793447000000
+  },
+  { "name": "NO MMSI" }
+]
