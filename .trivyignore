@@ -1,0 +1,6 @@
+# Accepted risks for the Trivy scan (see .github/workflows/security.yml).
+#
+# Only add an entry after reviewing the CVE, and always document why it is
+# acceptable and when it should be re-evaluated, e.g.:
+#
+# CVE-2026-00000  # affects only the X CLI tool, which the image never runs. Review: 2027-01-01

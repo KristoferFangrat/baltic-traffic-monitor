@@ -1,6 +1,7 @@
 # 🛰️ Baltic Traffic Monitor
 
 [![CI](https://github.com/KristoferFangrat/baltic-traffic-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/KristoferFangrat/baltic-traffic-monitor/actions/workflows/ci.yml)
+[![Security scan](https://github.com/KristoferFangrat/baltic-traffic-monitor/actions/workflows/security.yml/badge.svg)](https://github.com/KristoferFangrat/baltic-traffic-monitor/actions/workflows/security.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
@@ -26,6 +27,7 @@ Datan hämtas med Python, lagras i PostgreSQL, analyseras med SQL-vyer och visas
 | 📈 **Trafikanalys** | Trafikvolym per timme, fördelning per fartygskategori, flyghöjd och flygplanstyp |
 | 🔧 **Pipeline-övervakning** | Varje körning loggas i `ingestion_runs` (antal hämtade/nya rader, fel), och det visas i dashboarden |
 | ♻️ **Idempotenta laddningar** | `COPY` till en staging-tabell följt av `INSERT … ON CONFLICT DO NOTHING`, så att omkörningar inte skapar dubbletter |
+| 🔒 **Säkerhetsskanning** | Trivy skannar Docker-imagen, Python-beroenden, hemligheter och Docker-konfiguration vid varje push och varje vecka |
 | 🧪 **Tester + CI** | Enhetstester för parsers och klienter, integrationstester mot riktig PostgreSQL och en Docker-smoke test i GitHub Actions |
 | 🎭 **Demoläge** | Syntetisk data längs riktiga farleder, så att dashboarden går att visa helt utan internet |
 
@@ -126,6 +128,21 @@ ruff check . && ruff format --check .
 
 GitHub Actions kör linting, alla tester mot en PostgreSQL-tjänst, bygger Docker-imagen och gör en smoke test av hela stacken.
 
+## Säkerhet
+
+Workflowet [`security.yml`](.github/workflows/security.yml) kör [Trivy](https://trivy.dev):
+
+| Skanning | Vad som kontrolleras | Stoppar bygget? |
+|---|---|---|
+| **Container-image** | Kända sårbarheter (CVE) i OS-paket och Python-paket i den byggda imagen | Ja, vid **CRITICAL** som har en rättning |
+| **Repository** | `requirements.txt`, inlagda hemligheter (API-nycklar, lösenord), Dockerfile/Compose-konfiguration | Ja, vid hemligheter eller **CRITICAL** som har en rättning |
+
+- Alla fynd av nivå HIGH och CRITICAL laddas upp till fliken **Security → Code scanning** på GitHub.
+- Skanningen körs även **varje måndag**, eftersom nya CVE:er publiceras även när koden inte ändras.
+- Sårbarheter **utan** tillgänglig rättning rapporteras men stoppar inte bygget. Accepterade risker dokumenteras med motivering i [`.trivyignore`](.trivyignore).
+- Imagen kör `apt-get upgrade` vid bygget för att få med säkerhetsrättningar som släppts efter base image, och appen körs som en icke-root-användare.
+- Alla externa GitHub Actions är låsta till en exakt **commit-SHA** i stället för en tagg. Taggar kan flyttas: det hände med `trivy-action` i mars 2026 (CVE-2026-33634), när angripare skrev om nästan alla versionstaggar så att de pekade på skadlig kod.
+
 ## Projektstruktur
 
 ```
@@ -151,6 +168,7 @@ GitHub Actions kör linting, alla tester mot en PostgreSQL-tjänst, bygger Docke
 - OpenSky Network (OAuth2) som andra ADS-B-källa för jämförelse av datakvalitet
 - Orkestrering med Airflow/Dagster och modellering med dbt
 - Larm (e-post/Slack) när en avvikelse upptäcks
+- SBOM (Software Bill of Materials) och signering av imagen med cosign
 
 ## Datakällor och licenser
 

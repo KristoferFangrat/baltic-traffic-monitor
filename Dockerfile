@@ -7,6 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Pull in Debian security fixes released after the base image was built,
+# and upgrade pip itself (an outdated pip is a common scanner finding)
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --upgrade pip
+
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
