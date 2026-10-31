@@ -38,10 +38,11 @@ def test_aircraft_tooltip_with_missing_speed_and_altitude():
             "ground_speed_kt": float("nan"),
         }
     )
-    title, details, motion = aircraft_tooltip(row)
+    title, details, motion, destination = aircraft_tooltip(row)
     assert title == "✈️ 4ac9e1"
     assert details == "SE-RJX"
     assert motion == "– · –"
+    assert destination == "→ Okänd"
 
 
 def test_aircraft_tooltip_lines():
@@ -51,8 +52,17 @@ def test_aircraft_tooltip_lines():
         "registration": "B-228S",
         "altitude_ft": 31000,
         "ground_speed_kt": 415.0,
+        "origin_iata": "PVG",
+        "dest_iata": "ARN",
+        "dest_city": "Stockholm",
+        "dest_country": "SE",
     }
-    assert aircraft_tooltip(row) == ("✈️ CKK216", "B77L B-228S", "31,000 ft · 415 kt")
+    assert aircraft_tooltip(row) == (
+        "✈️ CKK216",
+        "B77L B-228S",
+        "31,000 ft · 415 kt",
+        "→ Stockholm, Sverige (ARN) · från PVG",
+    )
 
 
 def test_aircraft_tooltip_on_ground():
@@ -64,7 +74,20 @@ def test_vessel_tooltip_with_missing_values():
     row = pd.Series(
         {"name": None, "mmsi": 265547250, "category": None, "sog_knots": float("nan"), "destination": pd.NA}
     )
-    assert vessel_tooltip(row) == ("🚢 265547250", "Okänd · –", "Destination: –")
+    assert vessel_tooltip(row) == ("🚢 265547250", "Okänd · –", "→ Okänd", "AIS-destination: –")
+
+
+def test_vessel_tooltip_shows_interpreted_and_raw_destination():
+    row = {
+        "name": "BALTIC STAR",
+        "category": "Last",
+        "sog_knots": 12.3,
+        "destination": "FI HEL",
+        "dest_locode": "FIHEL",
+        "dest_name": "Helsingfors (Helsinki)",
+        "dest_country": "FI",
+    }
+    assert vessel_tooltip(row)[2:] == ("→ Helsingfors (Helsinki), Finland (FIHEL)", "AIS-destination: FI HEL")
 
 
 @pytest.mark.parametrize("func", [aircraft_tooltip, vessel_tooltip])
@@ -81,6 +104,6 @@ def test_tooltips_expand_into_dataframe_columns():
             {"callsign": None, "icao_hex": "b", "altitude_ft": None, "ground_speed_kt": None},
         ]
     )
-    df[["t1", "t2", "t3"]] = df.apply(aircraft_tooltip, axis=1, result_type="expand")
+    df[["t1", "t2", "t3", "t4"]] = df.apply(aircraft_tooltip, axis=1, result_type="expand")
     assert df["t3"].tolist() == ["36,000 ft · 450 kt", "– · –"]
     assert df["t1"].tolist() == ["✈️ SAS1", "✈️ b"]

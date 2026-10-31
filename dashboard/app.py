@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import psycopg
 import pydeck as pdk
@@ -16,7 +17,16 @@ import streamlit as st
 
 # Make `btm` importable when running `streamlit run dashboard/app.py` without PYTHONPATH
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from btm.formatting import TOOLTIP_FIELDS, aircraft_tooltip, flag, vessel_tooltip  # noqa: E402
+from btm.destinations import country_name  # noqa: E402
+from btm.formatting import (  # noqa: E402
+    TOOLTIP_FIELDS,
+    aircraft_tooltip,
+    flag,
+    flight_destination,
+    flight_route,
+    vessel_destination,
+    vessel_tooltip,
+)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://btm:btm@localhost:5433/btm")
 REFRESH_SECONDS = 30
@@ -106,9 +116,16 @@ k3.metric("Militära flygplan", int(aircraft["is_military"].map(flag).sum()) if 
 k4.metric("AIS-avbrott (24 h)", len(gaps))
 k5.metric("Nödkoder (24 h)", len(squawks))
 
-tab_map, tab_vessels, tab_air, tab_anom, tab_pipe = st.tabs(
-    ["🗺️ Karta", "🚢 Fartyg", "✈️ Flyg", "⚠️ Avvikelser", "🔧 Pipeline"]
+tab_map, tab_vessels, tab_air, tab_dest, tab_anom, tab_pipe = st.tabs(
+    ["🗺️ Karta", "🚢 Fartyg", "✈️ Flyg", "🧭 Destinationer", "⚠️ Avvikelser", "🔧 Pipeline"]
 )
+
+# Readable destination columns, shared by the map, the tables and the destinations tab
+if not vessels.empty:
+    vessels["destination_label"] = vessels.apply(vessel_destination, axis=1)
+if not aircraft.empty:
+    aircraft["destination_label"] = aircraft.apply(flight_destination, axis=1)
+    aircraft["route"] = aircraft.apply(flight_route, axis=1)
 
 # ---------------------------------------------------------------------------
 # Map
@@ -172,7 +189,7 @@ with tab_map:
             map_style="light",
             # Line breaks live in the template; the values are inserted as escaped text
             tooltip={
-                "html": "<b>{tt_title}</b><br/>{tt_line2}<br/>{tt_line3}",
+                "html": "<b>{tt_title}</b><br/>{tt_line2}<br/>{tt_line3}<br/>{tt_line4}",
                 "style": {"fontSize": "13px", "lineHeight": "1.4"},
             },
         ),
@@ -195,11 +212,33 @@ with tab_vessels:
         if not hourly.empty:
             st.line_chart(hourly.pivot(index="hour", columns="source", values="unique_objects"))
     st.subheader("Senaste positioner")
-    st.dataframe(
-        vessels.drop(columns=["nav_status"], errors="ignore").sort_values("observed_at", ascending=False),
-        use_container_width=True,
-        hide_index=True,
-    )
+    if not vessels.empty:
+        st.dataframe(
+            vessels.sort_values("observed_at", ascending=False)[
+                [
+                    "name",
+                    "mmsi",
+                    "category",
+                    "destination_label",
+                    "destination",
+                    "sog_knots",
+                    "observed_at",
+                    "lat",
+                    "lon",
+                ]
+            ],
+            column_config={
+                "name": "Namn",
+                "mmsi": st.column_config.NumberColumn("MMSI", format="%d"),
+                "category": "Kategori",
+                "destination_label": "Destination",
+                "destination": "AIS-destination (rå)",
+                "sog_knots": st.column_config.NumberColumn("Fart (kn)", format="%.1f"),
+                "observed_at": "Senast sedd",
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
 
 # ---------------------------------------------------------------------------
 # Aircraft
@@ -219,7 +258,135 @@ with tab_air:
         st.subheader("Vanligaste flygplanstyper")
         if not aircraft.empty:
             st.bar_chart(aircraft["type_code"].value_counts().head(10))
-    st.dataframe(aircraft.sort_values("altitude_ft", ascending=False), use_container_width=True, hide_index=True)
+    if not aircraft.empty:
+        st.dataframe(
+            aircraft.sort_values("altitude_ft", ascending=False)[
+                [
+                    "callsign",
+                    "registration",
+                    "type_code",
+                    "route",
+                    "destination_label",
+                    "altitude_ft",
+                    "ground_speed_kt",
+                    "squawk",
+                    "is_military",
+                    "observed_at",
+                ]
+            ],
+            column_config={
+                "callsign": "Anropssignal",
+                "registration": "Registrering",
+                "type_code": "Typ",
+                "route": "Rutt",
+                "destination_label": "Destination",
+                "altitude_ft": st.column_config.NumberColumn("Höjd (ft)", format="%d"),
+                "ground_speed_kt": st.column_config.NumberColumn("Fart (kt)", format="%d"),
+                "squawk": "Transponderkod",
+                "is_military": "Militärt",
+                "observed_at": "Senast sedd",
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Destinations
+# ---------------------------------------------------------------------------
+def _vessel_group_label(r: pd.Series) -> str:
+    if r["resolved"]:
+        return vessel_destination(r)
+    return "Okänd" if r["dest_name"] == "Okänd" else f"{r['dest_name']} (okänd kod)"
+
+
+def _top(df: pd.DataFrame, label: str, count: str, n: int = 15) -> pd.Series:
+    return df.groupby(label)[count].sum().sort_values(ascending=False).head(n)
+
+
+def _hbar(series: pd.Series, x_title: str) -> None:
+    """Horizontal bar chart sorted by count, with room for long place names."""
+    data = series.rename_axis("label").reset_index(name="count")
+    chart = (
+        alt.Chart(data)
+        .mark_bar()
+        .encode(
+            x=alt.X("count:Q", title=x_title, axis=alt.Axis(tickMinStep=1)),
+            y=alt.Y("label:N", sort="-x", title=None, axis=alt.Axis(labelLimit=320, labelOverlap=False)),
+            tooltip=[alt.Tooltip("label:N", title="Destination"), alt.Tooltip("count:Q", title="Antal")],
+        )
+        .properties(height=max(120, 28 * len(data)))
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+
+with tab_dest:
+    st.caption(
+        "Fartygens destination är det besättningen själv skrivit in i AIS, oftast en hamnkod enligt "
+        "UN/LOCODE (t.ex. FIHEL = Helsingfors). Flygets rutter kommer från adsb.lol och matchas på "
+        "anropssignal; *osäker* betyder att planets position inte stämmer med rutten. "
+        "Visar alla kategorier oberoende av filtren i sidomenyn."
+    )
+    vdest = safe_query("SELECT * FROM v_vessel_destinations")
+    fdest = safe_query("SELECT * FROM v_flight_destinations")
+    if not vdest.empty:
+        vdest["label"] = vdest.apply(_vessel_group_label, axis=1)
+        vdest["country_name"] = vdest["dest_country"].map(lambda c: country_name(c) if isinstance(c, str) else "Okänt")
+    if not fdest.empty:
+        fdest["label"] = fdest.apply(flight_destination, axis=1)
+        fdest["country_name"] = fdest["dest_country"].map(lambda c: country_name(c) if isinstance(c, str) else "Okänt")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("🚢 Fartyg – vart är de på väg?")
+        if vdest.empty:
+            st.info("Inga fartyg den senaste timmen.")
+        else:
+            cats = ["Alla kategorier", *sorted(vdest["category"].dropna().unique())]
+            vcat = st.selectbox("Fartygskategori", cats, key="vdest_cat")
+            vsel = vdest if vcat == "Alla kategorier" else vdest[vdest["category"] == vcat]
+            total = int(vsel["vessels"].sum())
+            known = int(vsel.loc[vsel["resolved"], "vessels"].sum())
+            m1, m2 = st.columns(2)
+            m1.metric("Fartyg", total)
+            m2.metric("Med tolkad destination", f"{known} ({known / total:.0%})" if total else "0")
+            st.markdown("**Vanligaste destinationer**")
+            _hbar(_top(vsel, "label", "vessels"), "Antal fartyg")
+            st.markdown("**Per land**")
+            _hbar(_top(vsel, "country_name", "vessels", 10), "Antal fartyg")
+    with c2:
+        st.subheader("✈️ Flyg – vart är de på väg?")
+        if fdest.empty:
+            st.info("Inga flygplan de senaste 10 minuterna.")
+        else:
+            fcat = st.selectbox("Flygkategori", ["Alla kategorier", "Civilt", "Militärt"], key="fdest_cat")
+            fsel = fdest if fcat == "Alla kategorier" else fdest[fdest["category"] == fcat]
+            total = int(fsel["aircraft"].sum())
+            known = int(fsel.loc[fsel["dest_iata"].notna() | fsel["dest_icao"].notna(), "aircraft"].sum())
+            m1, m2 = st.columns(2)
+            m1.metric("Flygplan", total)
+            m2.metric("Med känd destination", f"{known} ({known / total:.0%})" if total else "0")
+            st.markdown("**Vanligaste destinationer**")
+            _hbar(_top(fsel, "label", "aircraft"), "Antal flygplan")
+            st.markdown("**Per land**")
+            _hbar(_top(fsel, "country_name", "aircraft", 10), "Antal flygplan")
+
+    st.subheader("Destinationer per kategori – fartyg")
+    if not vdest.empty:
+        pivot = vdest.pivot_table(index="label", columns="category", values="vessels", aggfunc="sum", fill_value=0)
+        pivot["Totalt"] = pivot.sum(axis=1)
+        st.dataframe(
+            pivot.sort_values("Totalt", ascending=False).rename_axis("Destination"),
+            use_container_width=True,
+        )
+    st.subheader("Destinationer per kategori – flyg")
+    if not fdest.empty:
+        pivot = fdest.pivot_table(index="label", columns="category", values="aircraft", aggfunc="sum", fill_value=0)
+        pivot["Totalt"] = pivot.sum(axis=1)
+        st.dataframe(
+            pivot.sort_values("Totalt", ascending=False).rename_axis("Destination"),
+            use_container_width=True,
+        )
 
 # ---------------------------------------------------------------------------
 # Anomalies

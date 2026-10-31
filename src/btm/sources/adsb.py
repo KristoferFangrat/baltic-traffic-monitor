@@ -1,11 +1,16 @@
 """ADS-B aircraft data from adsb.lol (open data, ODbL).
 
 Docs: https://api.adsb.lol/docs
-Endpoint used: ``/v2/lat/{lat}/lon/{lon}/dist/{radius_nm}`` (radius max 250 nm).
+Endpoints used:
+* ``GET /v2/lat/{lat}/lon/{lon}/dist/{radius_nm}`` – live positions (radius max 250 nm)
+* ``POST /api/0/routeset`` – origin/destination per callsign. Route data comes from the
+  community "standing data" project and is matched on callsign only, so adsb.lol also
+  returns ``plausible``: whether the aircraft's position actually lies on that route.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -13,6 +18,8 @@ from typing import Any
 import requests
 
 BASE_URL = "https://api.adsb.lol/v2"
+ROUTESET_URL = "https://api.adsb.lol/api/0/routeset"
+ROUTESET_MAX_PLANES = 100
 
 # Bit 0 of dbFlags marks an aircraft as military in the readsb database
 DB_FLAG_MILITARY = 1
@@ -86,6 +93,61 @@ def parse_aircraft(payload: dict[str, Any]) -> list[AircraftPosition]:
     return positions
 
 
+@dataclass(frozen=True)
+class Airport:
+    icao: str
+    iata: str | None
+    name: str | None
+    city: str | None
+    country: str | None  # ISO 3166 alpha-2
+
+
+@dataclass(frozen=True)
+class FlightRoute:
+    callsign: str
+    route_codes: str | None  # e.g. "ESSA-EFHK"; None when the route is unknown
+    origin: Airport | None
+    destination: Airport | None
+    plausible: bool | None
+
+
+def _airport(data: dict[str, Any] | None) -> Airport | None:
+    if not data or not data.get("icao"):
+        return None
+    return Airport(
+        icao=str(data["icao"]).upper(),
+        iata=_clean(data.get("iata")),
+        name=_clean(data.get("name")),
+        city=_clean(data.get("location")),
+        country=(_clean(data.get("countryiso2")) or "").upper() or None,
+    )
+
+
+def parse_routes(payload: list[dict[str, Any]]) -> list[FlightRoute]:
+    """Parse the list returned by ``/api/0/routeset``."""
+    routes: list[FlightRoute] = []
+    for item in payload or []:
+        callsign = _clean(item.get("callsign"))
+        if not callsign:
+            continue
+        codes = _clean(item.get("airport_codes"))
+        airports = [a for a in (_airport(x) for x in item.get("_airports") or []) if a]
+        if not codes or codes.lower() == "unknown" or len(airports) < 2:
+            routes.append(FlightRoute(callsign, None, None, None, None))
+            continue
+        plausible = item.get("plausible")
+        routes.append(
+            FlightRoute(
+                callsign=callsign,
+                route_codes=codes,
+                origin=airports[0],
+                destination=airports[-1],  # multi-leg routes: final stop
+                plausible=bool(plausible) if plausible is not None else None,
+            )
+        )
+    return routes
+
+
 class AdsbLolClient:
     def __init__(self, session: requests.Session, timeout: float = 30):
         self.session = session
@@ -96,3 +158,17 @@ class AdsbLolClient:
         resp = self.session.get(f"{BASE_URL}/lat/{lat}/lon/{lon}/dist/{radius_nm}", timeout=self.timeout)
         resp.raise_for_status()
         return parse_aircraft(resp.json())
+
+    def fetch_routes(self, planes: Sequence[tuple[str, float, float]]) -> list[FlightRoute]:
+        """Look up routes for ``(callsign, lat, lon)`` tuples, max 100 per request."""
+        routes: list[FlightRoute] = []
+        for i in range(0, len(planes), ROUTESET_MAX_PLANES):
+            batch = planes[i : i + ROUTESET_MAX_PLANES]
+            resp = self.session.post(
+                ROUTESET_URL,
+                json={"planes": [{"callsign": c, "lat": lat, "lng": lon} for c, lat, lon in batch]},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            routes.extend(parse_routes(resp.json()))
+        return routes

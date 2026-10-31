@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS vessels (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Destination interpreted from the free-text AIS field (see btm.destinations).
+-- ADD COLUMN IF NOT EXISTS keeps this file safe to re-run on an existing database.
+ALTER TABLE vessels ADD COLUMN IF NOT EXISTS dest_locode  TEXT;   -- UN/LOCODE, e.g. FIHEL
+ALTER TABLE vessels ADD COLUMN IF NOT EXISTS dest_name    TEXT;   -- port name or status text
+ALTER TABLE vessels ADD COLUMN IF NOT EXISTS dest_country TEXT;   -- ISO 3166 alpha-2
+
 CREATE TABLE IF NOT EXISTS vessel_positions (
     id           BIGSERIAL PRIMARY KEY,
     mmsi         BIGINT       NOT NULL,
@@ -66,6 +72,24 @@ CREATE TABLE IF NOT EXISTS aircraft_positions (
 
 CREATE INDEX IF NOT EXISTS ix_aircraft_positions_time ON aircraft_positions (observed_at DESC);
 CREATE INDEX IF NOT EXISTS ix_aircraft_positions_hex_time ON aircraft_positions (icao_hex, observed_at DESC);
+
+-- Route per callsign from adsb.lol's routeset API. Cached and refreshed by the collector.
+CREATE TABLE IF NOT EXISTS flight_routes (
+    callsign        TEXT PRIMARY KEY,
+    route_codes     TEXT,                 -- ICAO codes, e.g. ESSA-EFHK; NULL = unknown route
+    origin_icao     TEXT,
+    origin_iata     TEXT,
+    origin_name     TEXT,
+    origin_city     TEXT,
+    origin_country  TEXT,
+    dest_icao       TEXT,
+    dest_iata       TEXT,
+    dest_name       TEXT,
+    dest_city       TEXT,
+    dest_country    TEXT,
+    plausible       BOOLEAN,              -- does the aircraft's position fit the route?
+    fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- ---------------------------------------------------------------------------
 -- Pipeline observability

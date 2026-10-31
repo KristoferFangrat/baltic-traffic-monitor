@@ -1,0 +1,40 @@
+[
+  {
+    "callsign": "SAS1421",
+    "number": "1421",
+    "airline_code": "SAS",
+    "airport_codes": "ESSA-EFHK",
+    "_airport_codes_iata": "ARN-HEL",
+    "_airports": [
+      {"name": "Stockholm-Arlanda Airport", "icao": "ESSA", "iata": "ARN", "location": "Stockholm",
+       "countryiso2": "SE", "lat": 59.6519, "lon": 17.9186, "alt_feet": 137.0, "alt_meters": 41.76},
+      {"name": "Helsinki Vantaa Airport", "icao": "EFHK", "iata": "HEL", "location": "Helsinki",
+       "countryiso2": "FI", "lat": 60.3172, "lon": 24.9633, "alt_feet": 179.0, "alt_meters": 54.56}
+    ],
+    "plausible": true
+  },
+  {
+    "callsign": "CKK216",
+    "number": "216",
+    "airline_code": "CKK",
+    "airport_codes": "ZSPD-ESSA-EDDF",
+    "_airport_codes_iata": "PVG-ARN-FRA",
+    "_airports": [
+      {"name": "Shanghai Pudong International Airport", "icao": "ZSPD", "iata": "PVG", "location": "Shanghai",
+       "countryiso2": "CN", "lat": 31.1434, "lon": 121.805, "alt_feet": 13.0, "alt_meters": 3.96},
+      {"name": "Stockholm-Arlanda Airport", "icao": "ESSA", "iata": "ARN", "location": "Stockholm",
+       "countryiso2": "SE", "lat": 59.6519, "lon": 17.9186, "alt_feet": 137.0, "alt_meters": 41.76},
+      {"name": "Frankfurt am Main Airport", "icao": "EDDF", "iata": "FRA", "location": "Frankfurt am Main",
+       "countryiso2": "DE", "lat": 50.0333, "lon": 8.5706, "alt_feet": 364.0, "alt_meters": 110.95}
+    ],
+    "plausible": false
+  },
+  {
+    "callsign": "DEMO01",
+    "number": "unknown",
+    "airline_code": "unknown",
+    "airport_codes": "unknown",
+    "_airport_codes_iata": "unknown",
+    "_airports": []
+  }
+]

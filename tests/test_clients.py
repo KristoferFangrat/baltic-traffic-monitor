@@ -1,6 +1,6 @@
 """Client tests with a fake session – no network."""
 
-from btm.sources.adsb import AdsbLolClient
+from btm.sources.adsb import ROUTESET_URL, AdsbLolClient
 from btm.sources.ais import BASE_URL, DigitrafficClient
 
 
@@ -25,6 +25,10 @@ class FakeSession:
         self.calls.append((url, params))
         return FakeResponse(self.payload)
 
+    def post(self, url, json=None, timeout=None):
+        self.calls.append((url, json))
+        return FakeResponse(self.payload)
+
 
 def test_digitraffic_client_sends_identification_and_area(load_fixture):
     session = FakeSession(load_fixture("ais_locations.json"))
@@ -43,3 +47,15 @@ def test_adsb_client_clamps_radius(load_fixture):
 
     url, _ = session.calls[0]
     assert url.endswith("/lat/59.33/lon/18.07/dist/250")
+
+
+def test_route_lookup_is_batched_per_100_planes(load_fixture):
+    session = FakeSession(load_fixture("routeset.json"))
+    planes = [(f"SAS{i}", 59.0, 18.0) for i in range(250)]
+
+    AdsbLolClient(session).fetch_routes(planes)
+
+    assert [len(body["planes"]) for _, body in session.calls] == [100, 100, 50]
+    url, body = session.calls[0]
+    assert url == ROUTESET_URL
+    assert body["planes"][0] == {"callsign": "SAS0", "lat": 59.0, "lng": 18.0}

@@ -31,6 +31,7 @@ class Settings:
     adsb_lon: float
     adsb_radius_nm: int
     adsb_poll_seconds: int
+    route_poll_seconds: int
 
     # Retention
     retention_days: int
@@ -52,5 +53,6 @@ class Settings:
             adsb_lon=_float("ADSB_LON", 18.07),
             adsb_radius_nm=min(_int("ADSB_RADIUS_NM", 200), 250),
             adsb_poll_seconds=_int("ADSB_POLL_SECONDS", 60),
+            route_poll_seconds=_int("ROUTE_POLL_SECONDS", 120),
             retention_days=_int("RETENTION_DAYS", 7),
         )

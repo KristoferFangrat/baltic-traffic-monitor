@@ -11,7 +11,8 @@ from pathlib import Path
 
 import psycopg
 
-from btm.sources.adsb import AircraftPosition
+from btm.destinations import resolve_ais_destination
+from btm.sources.adsb import AircraftPosition, FlightRoute
 from btm.sources.ais import Vessel, VesselPosition
 
 log = logging.getLogger(__name__)
@@ -69,24 +70,55 @@ def insert_vessel_positions(conn: psycopg.Connection, rows: Sequence[VesselPosit
 def upsert_vessels(conn: psycopg.Connection, rows: Sequence[Vessel]) -> int:
     if not rows:
         return 0
+    params = []
+    for r in rows:
+        dest = resolve_ais_destination(r.destination)
+        params.append(
+            (r.mmsi, r.name, r.ship_type, r.call_sign, r.imo, r.destination, r.draught_m,
+             dest.locode, dest.name, dest.country)
+        )  # fmt: skip
     with conn.cursor() as cur:
         cur.executemany(
             """
-            INSERT INTO vessels (mmsi, name, ship_type, call_sign, imo, destination, draught_m)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO vessels (mmsi, name, ship_type, call_sign, imo, destination, draught_m,
+                                 dest_locode, dest_name, dest_country)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (mmsi) DO UPDATE SET
-                name        = COALESCE(EXCLUDED.name, vessels.name),
-                ship_type   = COALESCE(EXCLUDED.ship_type, vessels.ship_type),
-                call_sign   = COALESCE(EXCLUDED.call_sign, vessels.call_sign),
-                imo         = COALESCE(EXCLUDED.imo, vessels.imo),
-                destination = EXCLUDED.destination,
-                draught_m   = EXCLUDED.draught_m,
-                updated_at  = now()
+                name         = COALESCE(EXCLUDED.name, vessels.name),
+                ship_type    = COALESCE(EXCLUDED.ship_type, vessels.ship_type),
+                call_sign    = COALESCE(EXCLUDED.call_sign, vessels.call_sign),
+                imo          = COALESCE(EXCLUDED.imo, vessels.imo),
+                destination  = EXCLUDED.destination,
+                draught_m    = EXCLUDED.draught_m,
+                dest_locode  = EXCLUDED.dest_locode,
+                dest_name    = EXCLUDED.dest_name,
+                dest_country = EXCLUDED.dest_country,
+                updated_at   = now()
             """,
-            [(r.mmsi, r.name, r.ship_type, r.call_sign, r.imo, r.destination, r.draught_m) for r in rows],
+            params,
         )
     conn.commit()
     return len(rows)
+
+
+def backfill_vessel_destinations(conn: psycopg.Connection) -> int:
+    """Interpret destinations for vessels stored before destination parsing existed."""
+    rows = conn.execute(
+        "SELECT mmsi, destination FROM vessels WHERE destination IS NOT NULL AND dest_name IS NULL"
+    ).fetchall()
+    updates = []
+    for mmsi, raw in rows:
+        dest = resolve_ais_destination(raw)
+        if dest.resolved:
+            updates.append((dest.locode, dest.name, dest.country, mmsi))
+    if updates:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "UPDATE vessels SET dest_locode = %s, dest_name = %s, dest_country = %s WHERE mmsi = %s",
+                updates,
+            )
+    conn.commit()
+    return len(updates)
 
 
 def insert_aircraft_positions(conn: psycopg.Connection, rows: Sequence[AircraftPosition]) -> int:
@@ -151,6 +183,73 @@ def insert_aircraft_positions(conn: psycopg.Connection, rows: Sequence[AircraftP
         inserted = cur.rowcount
     conn.commit()
     return inserted
+
+
+# ---------------------------------------------------------------------------
+# Flight routes
+# ---------------------------------------------------------------------------
+def callsigns_needing_routes(conn: psycopg.Connection, limit: int = 300) -> list[tuple[str, float, float]]:
+    """Callsigns currently in the air whose route is missing or stale.
+
+    Known routes are refreshed after 12 h, unknown ones after 1 h (new callsigns are
+    added to the community route database over time).
+    """
+    return conn.execute(
+        """
+        SELECT DISTINCT ON (la.callsign) la.callsign, la.lat, la.lon
+        FROM v_latest_aircraft la
+        LEFT JOIN flight_routes r ON r.callsign = la.callsign
+        WHERE la.callsign IS NOT NULL
+          AND (r.callsign IS NULL
+               OR r.fetched_at < now() - CASE WHEN r.route_codes IS NULL
+                                              THEN INTERVAL '1 hour' ELSE INTERVAL '12 hours' END)
+        ORDER BY la.callsign, la.observed_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+
+
+def upsert_flight_routes(conn: psycopg.Connection, routes: Sequence[FlightRoute]) -> int:
+    if not routes:
+        return 0
+
+    def ap(a, field):
+        return getattr(a, field) if a else None
+
+    params = [
+        (
+            r.callsign, r.route_codes,
+            ap(r.origin, "icao"), ap(r.origin, "iata"), ap(r.origin, "name"),
+            ap(r.origin, "city"), ap(r.origin, "country"),
+            ap(r.destination, "icao"), ap(r.destination, "iata"), ap(r.destination, "name"),
+            ap(r.destination, "city"), ap(r.destination, "country"),
+            r.plausible,
+        )
+        for r in {r.callsign: r for r in routes}.values()
+    ]  # fmt: skip
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO flight_routes (callsign, route_codes,
+                origin_icao, origin_iata, origin_name, origin_city, origin_country,
+                dest_icao, dest_iata, dest_name, dest_city, dest_country, plausible, fetched_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+            ON CONFLICT (callsign) DO UPDATE SET
+                route_codes = EXCLUDED.route_codes,
+                origin_icao = EXCLUDED.origin_icao, origin_iata = EXCLUDED.origin_iata,
+                origin_name = EXCLUDED.origin_name, origin_city = EXCLUDED.origin_city,
+                origin_country = EXCLUDED.origin_country,
+                dest_icao = EXCLUDED.dest_icao, dest_iata = EXCLUDED.dest_iata,
+                dest_name = EXCLUDED.dest_name, dest_city = EXCLUDED.dest_city,
+                dest_country = EXCLUDED.dest_country,
+                plausible = EXCLUDED.plausible,
+                fetched_at = now()
+            """,
+            params,
+        )
+    conn.commit()
+    return len(params)
 
 
 def purge_old_positions(conn: psycopg.Connection, retention_days: int) -> int:

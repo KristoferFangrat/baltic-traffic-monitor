@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 
 from btm import db
-from btm.sources.adsb import AircraftPosition
+from btm.sources.adsb import AircraftPosition, Airport, FlightRoute
 from btm.sources.ais import Vessel, VesselPosition
 
 log = logging.getLogger(__name__)
@@ -43,6 +43,35 @@ SHIP_TYPES = [70, 70, 70, 71, 79, 80, 80, 84, 60, 60, 69, 30, 52, 36, 37]
 NAME_A = ["NORDIC", "BALTIC", "SEA", "NORTHERN", "AURORA", "POLAR", "AMBER", "SILVER", "OCEAN"]
 NAME_B = ["STAR", "WIND", "SPIRIT", "TRADER", "PIONEER", "HARMONY", "CARRIER", "SPRING", "QUEEN"]
 MID = [265, 266, 230, 276, 275, 277, 261, 211, 219]  # SE, SE, FI, EE, LV, LT, PL, DE, DK
+
+# What crews actually type in AIS: LOCODEs (with and without space), port names,
+# routes and statuses – plus some rubbish the parser can't interpret.
+DESTINATIONS = [
+    "SESTO", "FIHEL", "EETLL", "FITKU", "LVRIX", "PLGDN", "SEVBY", "DEKEL", "SEGOT",
+    "SE NYN", "FI HEL", "LT KLJ", "NLRTM", "DEHAM", "RULED", "EEMUG", "FIKTK",
+    "HELSINKI", "TALLINN", "MARIEHAMN", "SE NYN>FI MHQ", "STOCKHOLM - HELSINKI",
+    "ST.PETERSBURG", "GDANSK", "FOR ORDERS", "FISHING", "", "XX123",
+]  # fmt: skip
+
+AIRPORTS = {
+    "ESSA": Airport("ESSA", "ARN", "Stockholm-Arlanda Airport", "Stockholm", "SE"),
+    "ESSB": Airport("ESSB", "BMA", "Stockholm Bromma Airport", "Stockholm", "SE"),
+    "ESGG": Airport("ESGG", "GOT", "Göteborg Landvetter Airport", "Göteborg", "SE"),
+    "ESPA": Airport("ESPA", "LLA", "Luleå Airport", "Luleå", "SE"),
+    "EFHK": Airport("EFHK", "HEL", "Helsinki Vantaa Airport", "Helsinki", "FI"),
+    "EKCH": Airport("EKCH", "CPH", "Copenhagen Kastrup Airport", "Copenhagen", "DK"),
+    "ENGM": Airport("ENGM", "OSL", "Oslo Gardermoen Airport", "Oslo", "NO"),
+    "EETN": Airport("EETN", "TLL", "Tallinn Airport", "Tallinn", "EE"),
+    "EVRA": Airport("EVRA", "RIX", "Riga International Airport", "Riga", "LV"),
+    "EYVI": Airport("EYVI", "VNO", "Vilnius International Airport", "Vilnius", "LT"),
+    "EPWA": Airport("EPWA", "WAW", "Warsaw Chopin Airport", "Warsaw", "PL"),
+    "EDDF": Airport("EDDF", "FRA", "Frankfurt am Main Airport", "Frankfurt", "DE"),
+    "EHAM": Airport("EHAM", "AMS", "Amsterdam Airport Schiphol", "Amsterdam", "NL"),
+    "LFPG": Airport("LFPG", "CDG", "Paris Charles de Gaulle Airport", "Paris", "FR"),
+    "EGLL": Airport("EGLL", "LHR", "London Heathrow Airport", "London", "GB"),
+    "LTFM": Airport("LTFM", "IST", "Istanbul Airport", "Istanbul", "TR"),
+    "OMDB": Airport("OMDB", "DXB", "Dubai International Airport", "Dubai", "AE"),
+}
 
 AIRLINES = ["SAS", "FIN", "NAX", "DLH", "BTI", "KLM", "AFR", "BAW", "WZZ", "RYR"]
 TYPES = ["A320", "A20N", "A321", "B738", "B38M", "A359", "E190", "AT76", "CRJ9", "B77W"]
@@ -83,7 +112,7 @@ def _vessels(rng: random.Random, now: datetime) -> tuple[list[Vessel], list[Vess
                 ship_type=ship_type,
                 call_sign=f"DEMO{i:03d}",
                 imo=9_000_000 + rng.randint(0, 999_999),
-                destination=rng.choice(["SESTO", "FIHEL", "EETLL", "FITKU", "LVRIX", "PLGDN", "SEVBY"]),
+                destination=rng.choice(DESTINATIONS),
                 draught_m=round(rng.uniform(3, 11), 1),
             )
         )
@@ -201,6 +230,24 @@ def _aircraft(rng: random.Random, now: datetime) -> list[AircraftPosition]:
     return rows
 
 
+def _routes(rng: random.Random, aircraft: list[AircraftPosition]) -> list[FlightRoute]:
+    """Most traffic in the area goes to or from Arlanda; a few routes are unknown."""
+    routes: list[FlightRoute] = []
+    others = [code for code in AIRPORTS if code != "ESSA"]
+    for callsign in sorted({a.callsign for a in aircraft if a.callsign and not a.is_military}):
+        roll = rng.random()
+        if roll < 0.1:
+            routes.append(FlightRoute(callsign, None, None, None, None))  # not in the route database
+            continue
+        a, b = "ESSA", rng.choice(others)
+        if roll < 0.25:  # overflight not touching Stockholm
+            a, b = rng.sample(others, 2)
+        elif rng.random() < 0.5:
+            a, b = b, a
+        routes.append(FlightRoute(callsign, f"{a}-{b}", AIRPORTS[a], AIRPORTS[b], rng.random() > 0.05))
+    return routes
+
+
 def seed_demo_data(conn: psycopg.Connection, seed: int = 42) -> None:
     rng = random.Random(seed)
     now = datetime.now(UTC)
@@ -212,6 +259,7 @@ def seed_demo_data(conn: psycopg.Connection, seed: int = 42) -> None:
         db.upsert_vessels(conn, vessels)
         run.inserted = db.insert_vessel_positions(conn, vessel_positions)
         run.inserted += db.insert_aircraft_positions(conn, aircraft)
+        db.upsert_flight_routes(conn, _routes(rng, aircraft))
     log.info(
         "Demo data loaded: %d vessels, %d vessel positions, %d aircraft positions",
         len(vessels),

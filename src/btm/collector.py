@@ -66,6 +66,17 @@ class Collector:
             run.inserted = db.insert_aircraft_positions(self.conn, rows)
         log.info("ADS-B positions: %d fetched, %d new", run.fetched, run.inserted)
 
+    def collect_routes(self) -> None:
+        planes = db.callsigns_needing_routes(self.conn)
+        if not planes:
+            return
+        with db.ingestion_run(self.conn, "adsb_routes") as run:
+            routes = self.adsb.fetch_routes(planes)
+            run.fetched = len(routes)
+            run.inserted = db.upsert_flight_routes(self.conn, routes)
+        known = sum(r.route_codes is not None for r in routes)
+        log.info("Flight routes: %d looked up, %d with a known route", len(routes), known)
+
     def purge(self) -> None:
         deleted = db.purge_old_positions(self.conn, self.s.retention_days)
         log.info("Retention: deleted %d rows older than %d days", deleted, self.s.retention_days)
@@ -76,6 +87,7 @@ class Collector:
             Job("ais_vessels", self.s.ais_vessel_refresh_seconds, self.collect_ais_vessels),
             Job("ais_positions", self.s.ais_poll_seconds, self.collect_ais_positions),
             Job("adsb", self.s.adsb_poll_seconds, self.collect_adsb),
+            Job("adsb_routes", self.s.route_poll_seconds, self.collect_routes),
             Job("purge", 6 * 3600, self.purge),
         ]
 
@@ -126,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings.from_env()
     conn = wait_for_db(settings.database_url)
     db.init_schema(conn)
+    if filled := db.backfill_vessel_destinations(conn):
+        log.info("Interpreted destinations for %d existing vessels", filled)
 
     if args.command == "init-db":
         log.info("Schema ready")
