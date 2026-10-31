@@ -38,7 +38,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
-            database_url=os.getenv("DATABASE_URL", "postgresql://btm:btm@localhost:5432/btm"),
+            database_url=os.getenv("DATABASE_URL", "postgresql://btm:btm@localhost:5433/btm"),
             user_agent=os.getenv(
                 "USER_AGENT",
                 "baltic-traffic-monitor/0.1 (+https://github.com/KristoferFangrat/baltic-traffic-monitor)",

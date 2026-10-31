@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-btm}
       POSTGRES_DB: ${POSTGRES_DB:-btm}
     ports:
-      - "5432:5432"
+      - "${DB_HOST_PORT:-5433}:5432"  # 5433 on the host avoids clashing with a local PostgreSQL
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

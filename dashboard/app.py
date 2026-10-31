@@ -12,7 +12,7 @@ import psycopg
 import pydeck as pdk
 import streamlit as st
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://btm:btm@localhost:5432/btm")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://btm:btm@localhost:5433/btm")
 REFRESH_SECONDS = 30
 
 st.set_page_config(page_title="Baltic Traffic Monitor", page_icon="🛰️", layout="wide")

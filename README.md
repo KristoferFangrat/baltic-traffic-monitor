@@ -42,7 +42,7 @@ flowchart LR
 
 | Tjänst | Vad den gör |
 |---|---|
-| `db` | PostgreSQL 16 med schema `traffic` |
+| `db` | PostgreSQL 16 med schema `traffic`, nås på `localhost:5433` från din dator |
 | `collector` | Hämtar AIS-positioner var 2:a minut, fartygsdata varje timme och ADS-B varje minut; rensar data äldre än 7 dagar |
 | `dashboard` | Streamlit på <http://localhost:8501> |
 | `seed` | (valfri) laddar demodata |
@@ -72,7 +72,7 @@ docker compose --profile demo run --rm seed
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 docker compose up -d db                               # eller egen PostgreSQL
-export PYTHONPATH=src DATABASE_URL=postgresql://btm:btm@localhost:5432/btm
+export PYTHONPATH=src DATABASE_URL=postgresql://btm:btm@localhost:5433/btm
 
 python -m btm.collector init-db   # skapa schema och vyer
 python -m btm.collector once      # en hämtning från varje källa
